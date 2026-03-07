@@ -1,5 +1,18 @@
 #pragma once
-// Auto-generated HTML stored in PROGMEM.
+// =====================================================================
+// Web Dashboard HTML (Stored in Flash Memory)
+// =====================================================================
+// This file contains the complete HTML/CSS/JavaScript for the device's
+// web interface. The content is stored in PROGMEM to conserve RAM.
+// 
+// Features:
+// - Responsive Bootstrap 5 design with dark/light mode support
+// - Real-time weather and device status display
+// - Brightness control slider
+// - RSS news feed viewer
+// - Firmware update link (via ElegantOTA)
+// - Auto-refresh every 60 seconds
+// =====================================================================
 
 const char INDEX_HTML[] PROGMEM = R"(
 <!DOCTYPE html>
@@ -10,6 +23,7 @@ const char INDEX_HTML[] PROGMEM = R"(
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>MeteoClock</title>
     <script>
+        // Detect user's color scheme preference and apply Bootstrap theme
         const theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
         document.documentElement.setAttribute('data-bs-theme', theme);
     </script>
@@ -281,32 +295,40 @@ const char INDEX_HTML[] PROGMEM = R"(
     </div>
 
     <script>
+        // =====================================================
+        // UI Element References
+        // =====================================================
         const slider = document.getElementById('brightness');
         const label = document.getElementById('brightness-label');
         const statusBadge = document.getElementById('status');
         const lastUpdate = document.getElementById('last-update');
 
+        // Updates the "last update" timestamp in the footer
         function updateTimestamp() {
             const now = new Date();
             lastUpdate.textContent = now.toLocaleTimeString('it-IT');
         }
 
-        // --- Fetch data and sync slider with current device state ---
+        // =====================================================
+        // Initial Data Load - Device Status and Weather
+        // =====================================================
         fetch('/api')
             .then(r => {
                 if (!r.ok) throw new Error('Network response was not ok');
                 return r.json();
             })
             .then(d => {
+                // Update weather display
                 document.getElementById('temp').textContent = d.temp + '°C';
                 document.getElementById('hum').textContent = d.humidity + '%';
                 document.getElementById('desc').textContent = d.description;
                 document.getElementById('ip').textContent = d.ip;
 
-                // Sync slider to current brightness reported by device
+                // Synchronize brightness slider with device's current setting
                 slider.value = d.brightness;
                 label.textContent = Math.round(d.brightness / 255 * 100) + '%';
 
+                // Update connection status badge
                 statusBadge.textContent = '● Online';
                 statusBadge.style.background = 'rgba(40, 167, 69, 0.2)';
                 statusBadge.style.color = '#28a745';
@@ -320,12 +342,18 @@ const char INDEX_HTML[] PROGMEM = R"(
                 statusBadge.style.color = '#dc3545';
             });
 
-        // Update label while dragging
+        // =====================================================
+        // Brightness Control
+        // =====================================================
+        
+        // Update label in real-time while user drags slider
         slider.addEventListener('input', () => {
             label.textContent = Math.round(slider.value / 255 * 100) + '%';
         });
 
-        // Fetch news
+        // =====================================================
+        // News Feed Loader
+        // =====================================================
         fetch('/news')
             .then(r => {
                 if (!r.ok) throw new Error('Network response was not ok');
@@ -358,11 +386,11 @@ const char INDEX_HTML[] PROGMEM = R"(
                 document.getElementById('news').innerHTML = '<p class="text-danger mb-0">Errore nel caricamento delle notizie</p>';
             });
 
-        // Send value to device on release
+        // Send brightness value to device when slider is released
         slider.addEventListener('change', () => {
             fetch('/brightness?value=' + slider.value)
                 .then(() => {
-                    // Visual feedback
+                    // Visual feedback: flash green on success
                     label.style.background = 'rgba(40, 167, 69, 0.2)';
                     label.style.color = '#28a745';
                     setTimeout(() => {
@@ -372,12 +400,15 @@ const char INDEX_HTML[] PROGMEM = R"(
                 })
                 .catch(err => {
                     console.error('Error setting brightness:', err);
+                    // Visual feedback: flash red on error
                     label.style.background = 'rgba(220, 53, 69, 0.2)';
                     label.style.color = '#dc3545';
                 });
         });
 
-        // Auto-refresh data every 60 seconds
+        // =====================================================
+        // Auto-Refresh Timer (60 seconds)
+        // =====================================================
         setInterval(() => {
             fetch('/api')
                 .then(r => r.json())
