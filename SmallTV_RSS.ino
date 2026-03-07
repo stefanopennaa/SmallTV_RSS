@@ -172,6 +172,7 @@ int lastMinute = -1;                  // Last displayed minute (avoids redundant
 unsigned long lastMarqueeUpdate = 0;  // Marquee animation timer
 int16_t marqueeX = SCREEN_W;          // Current X position of scrolling text
 char marqueeMessage[32] = "Torino";   // Scrolling marquee text content
+bool offlineScreenShown = false;      // True when timeout/offline screen is currently displayed
 
 // Display Brightness
 // Value range: 0-255 (automatically inverted for PWM since this panel uses inverted backlight control)
@@ -1032,6 +1033,16 @@ void tickNtpRetry(unsigned long now) {
   bootState = BootState::BOOT_NTP;
   ntpSynced = syncNTP();
   bootState = ntpSynced ? BootState::BOOT_READY : BootState::BOOT_DEGRADED;
+
+  // syncNTP() clears the full screen; restore home scene to avoid blank weather area.
+  if (!showNews) {
+    drawClock();
+    drawWeather();
+    time_t t = time(nullptr);
+    struct tm* ti = localtime(&t);
+    lastMinute = (ntpSynced && ti) ? ti->tm_hour * 60 + ti->tm_min : -1;
+    lastClockRefresh = now;
+  }
 }
 
 // tickInitialDataFetch()
@@ -1300,9 +1311,17 @@ void setup() {
   ElegantOTA.onEnd(onOTAEnd);
   server.begin();
 
-  // Show Clock and Weather Info
-  drawClock();
-  drawWeather();
+  // Show home scene only if network is connected; otherwise keep timeout/offline status.
+  if (WiFi.status() == WL_CONNECTED) {
+    drawClock();
+    drawWeather();
+  } else {
+    const char* offlineMsg = (lastWiFiResult == WiFiConnectResult::MissingCredentials)
+                               ? UI.wifiMissing
+                               : UI.wifiTimeout;
+    showStatus(offlineMsg, ST77XX_YELLOW, 40, 110);
+    offlineScreenShown = true;
+  }
 
   // Prime clock refresh state so tickClockRefresh doesn't redraw immediately
   {
@@ -1337,6 +1356,47 @@ void loop() {
   if (otaInProgress) return;
 
   unsigned long now = millis();
+
+  if (WiFi.status() != WL_CONNECTED) {
+    if (!offlineScreenShown) {
+      const char* offlineMsg = (lastWiFiResult == WiFiConnectResult::MissingCredentials)
+                                 ? UI.wifiMissing
+                                 : ((lastWiFiResult == WiFiConnectResult::Timeout)
+                                      ? UI.wifiTimeout
+                                      : UI.wifiOffline);
+      showStatus(offlineMsg, ST77XX_YELLOW, 40, 110);
+      offlineScreenShown = true;
+    }
+
+    // Freeze scene scheduler while offline to avoid clock/news flashes.
+    showNews = false;
+    currentNewsIndex = 0;
+    lastDisplay = now;
+
+    tickWiFiRetry(now);
+    return;
+  }
+
+  if (offlineScreenShown) {
+    // WiFi restored: refresh network-backed data immediately instead of waiting periodic intervals.
+    fetchWeather();
+    fetchAnsaRSS(ANSA_RSS_URL);
+    lastWeatherFetch = now;
+    lastNewsFetch = now;
+
+    showNews = false;
+    currentNewsIndex = 0;
+    lastDisplay = now;
+    marqueeX = SCREEN_W;
+    drawClock();
+    drawWeather();
+    time_t t = time(nullptr);
+    struct tm* ti = localtime(&t);
+    lastMinute = (ntpSynced && ti) ? ti->tm_hour * 60 + ti->tm_min : -1;
+    lastClockRefresh = now;
+    offlineScreenShown = false;
+  }
+
   tickWiFiRetry(now);
   tickNtpRetry(now);
   tickInitialDataFetch(now);
