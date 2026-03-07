@@ -42,6 +42,7 @@ constexpr unsigned long NEWS_INTERVAL_MS = 600000UL;
 // Controls how long each screen type is visible before switching
 constexpr unsigned long DISPLAY_CLOCK_MS = 60000UL;  // Clock scene: 1 minute
 constexpr unsigned long DISPLAY_NEWS_MS = 5000UL;    // News scene: 5 seconds per item
+constexpr unsigned long CLOCK_REFRESH_MS = 5000UL;   // Clock refresh interval while in clock scene
 
 // =====================================================================
 // Color Theme (RGB565 Format)
@@ -93,7 +94,7 @@ constexpr int16_t STATUS_TEXT_Y = 10;
 // =====================================================================
 
 constexpr unsigned long MARQUEE_INTERVAL_MS = 500;  // Animation frame interval (milliseconds)
-constexpr int16_t MARQUEE_Y = 115;                  // Vertical position on screen
+constexpr int16_t MARQUEE_Y = 110;                  // Vertical position on screen
 constexpr int16_t MARQUEE_H = 16;                   // Text height (pixels)
 constexpr int16_t MARQUEE_STEP_PX = 5;              // Horizontal scroll distance per frame
 

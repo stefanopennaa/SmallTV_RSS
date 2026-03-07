@@ -484,7 +484,6 @@ SOFTWARE.
 ## 📧 Support
 
 - **Issues**: [GitHub Issues](https://github.com/stefanopennaa/SmallTV_RSS/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/stefanopennaa/SmallTV_RSS/discussions)
 - **Email**: stefano@stefanopenna.it
 
 ---

@@ -167,9 +167,10 @@ bool initialDataFetched = false;      // True after first data fetch completes
 bool showNews = false;                // Toggle between clock and news scenes
 int currentNewsIndex = 0;             // Currently displayed news item index
 unsigned long lastDisplay = 0;        // Scene switching timer
+unsigned long lastClockRefresh = 0;   // Clock refresh timer (while in clock scene)
 unsigned long lastMarqueeUpdate = 0;  // Marquee animation timer
 int16_t marqueeX = SCREEN_W;          // Current X position of scrolling text
-char marqueeMessage[32] = "Turin";    // Scrolling marquee text content
+char marqueeMessage[32] = "Torino";   // Scrolling marquee text content
 
 // Display Brightness
 // Value range: 0-255 (automatically inverted for PWM since this panel uses inverted backlight control)
@@ -947,7 +948,7 @@ void drawClock() {
   uint16_t w, h;
   tft.getTextBounds(timeStr, 0, 0, &x1, &y1, &w, &h);
   int cx = ((240 - w) / 2) - 5;
-  int cy = 48 + h;
+  int cy = 40 + h;
   tft.setTextColor(ST77XX_WHITE);
   tft.setCursor(cx, cy);
   tft.print(timeStr);
@@ -1096,6 +1097,24 @@ void tickMarquee(unsigned long now) {
   if (marqueeX < -bw) {
     marqueeX = SCREEN_W;
   }
+}
+
+// tickClockRefresh()
+// Redraws the clock display only when the displayed minute has changed,
+// checked every CLOCK_REFRESH_MS while in the clock scene
+// Parameters:
+//   now - Current timestamp from millis()
+void tickClockRefresh(unsigned long now) {
+  if (showNews) return;
+  if (!hasIntervalPassed(lastClockRefresh, CLOCK_REFRESH_MS, now)) return;
+
+  time_t t = time(nullptr);
+  struct tm* ti = localtime(&t);
+  static int lastMinute = -1;
+  int currentMinute = ntpSynced && ti ? ti->tm_hour * 60 + ti->tm_min : -1;
+  if (currentMinute == lastMinute) return;
+  lastMinute = currentMinute;
+  drawClock();
 }
 
 // tickSceneScheduler()
@@ -1309,5 +1328,6 @@ void loop() {
   tickWeather(now);
   tickNews(now);
   tickMarquee(now);
+  tickClockRefresh(now);
   tickSceneScheduler(now);
 }
