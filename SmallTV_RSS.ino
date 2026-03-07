@@ -164,12 +164,12 @@ unsigned long lastNewsUpdate = 0;     // Last successful news feed fetch
 bool initialDataFetched = false;      // True after first data fetch completes
 
 // Display State
-bool showNews = false;                // Toggle between clock and news scenes
-int currentNewsIndex = 0;             // Currently displayed news item index
-unsigned long lastDisplay = 0;        // Scene switching timer
-unsigned long lastMarqueeUpdate = 0;  // Marquee animation timer
-int16_t marqueeX = SCREEN_W;          // Current X position of scrolling text
-char marqueeMessage[32] = "News";     // Scrolling marquee text content
+bool showNews = false;                    // Toggle between clock and news scenes
+int currentNewsIndex = 0;                 // Currently displayed news item index
+unsigned long lastDisplay = 0;            // Scene switching timer
+unsigned long lastMarqueeUpdate = 0;      // Marquee animation timer
+int16_t marqueeX = SCREEN_W;              // Current X position of scrolling text
+char marqueeMessage[12] = "ANSA News: ";  // Scrolling marquee text content
 
 // Display Brightness
 // Value range: 0-255 (automatically inverted for PWM since this panel uses inverted backlight control)
@@ -1087,13 +1087,17 @@ void tickMarquee(unsigned long now) {
   // Prevent line-wrap artifacts when marqueeX becomes negative.
   tft.setTextWrap(false);
   tft.setCursor(marqueeX, MARQUEE_Y);
+  const char* currentHeadline = newsTitles[0].c_str();
   tft.print(marqueeMessage);
+  tft.print(currentHeadline);
 
-  int16_t bx, by;
-  uint16_t bw, bh;
+  int16_t bx, by, titleBx, titleBy;
+  uint16_t bw, bh, titleBw, titleBh;
   tft.getTextBounds(marqueeMessage, 0, 0, &bx, &by, &bw, &bh);
+  tft.getTextBounds(currentHeadline, 0, 0, &titleBx, &titleBy, &titleBw, &titleBh);
+  uint16_t marqueeTextWidth = bw + titleBw;
   marqueeX -= MARQUEE_STEP_PX;
-  if (marqueeX < -(int16_t)bw) {
+  if (marqueeX < -(int16_t)marqueeTextWidth) {
     marqueeX = SCREEN_W;
   }
 }

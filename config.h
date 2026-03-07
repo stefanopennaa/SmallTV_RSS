@@ -40,7 +40,7 @@ constexpr unsigned long NEWS_INTERVAL_MS = 600000UL;
 
 // Scene Display Durations
 // Controls how long each screen type is visible before switching
-constexpr unsigned long DISPLAY_CLOCK_MS = 25000UL;  // Clock scene: 25 seconds
+constexpr unsigned long DISPLAY_CLOCK_MS = 60000UL;  // Clock scene: 1 minute
 constexpr unsigned long DISPLAY_NEWS_MS = 5000UL;    // News scene: 5 seconds per item
 
 // =====================================================================
