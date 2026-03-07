@@ -110,7 +110,7 @@ ElegantOTA            // OTA updates
 
 ### 1️⃣ Clone the Repository
 ```bash
-git clone https://github.com/YOUR_USERNAME/SmallTV_RSS.git
+git clone https://github.com/stefanopennaa/SmallTV_RSS.git
 cd SmallTV_RSS
 ```
 
@@ -438,7 +438,7 @@ This project is licensed under the **MIT License** - see below for details:
 ```
 MIT License
 
-Copyright (c) 2026 [Your Name]
+Copyright (c) 2026 Stefano Penna
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -483,9 +483,9 @@ SOFTWARE.
 
 ## 📧 Support
 
-- **Issues**: [GitHub Issues](https://github.com/YOUR_USERNAME/SmallTV_RSS/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/YOUR_USERNAME/SmallTV_RSS/discussions)
-- **Email**: your.email@example.com
+- **Issues**: [GitHub Issues](https://github.com/stefanopennaa/SmallTV_RSS/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/stefanopennaa/SmallTV_RSS/discussions)
+- **Email**: stefano@stefanopenna.it
 
 ---
 
