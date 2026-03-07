@@ -1,0 +1,9 @@
+# Build artifacts
+build/
+
+# Local secrets
+wifi_secrets.h
+secrets.h
+
+# macOS
+.DS_Store
