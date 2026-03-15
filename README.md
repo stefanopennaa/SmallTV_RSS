@@ -1,71 +1,251 @@
-t# SmallTV RSS
+# 📺 SmallTV RSS - ESP8266 Weather Clock, RSS & GTT Feed
 
-Firmware ESP8266 per GeekMagic SmallTV con:
-- orologio NTP
-- meteo OpenWeatherMap
-- news RSS ANSA
-- GTT (web + TFT)
-- OTA via ElegantOTA
+<p align="center">
+  <img src="https://img.shields.io/badge/version-2026.03.15-blue.svg" alt="Version">
+  <img src="https://img.shields.io/badge/platform-ESP8266-green.svg" alt="Platform">
+  <img src="https://img.shields.io/badge/license-MIT-yellow.svg" alt="License">
+</p>
 
-## Versioning
+Smart weather station + RSS news reader + GTT stop monitor for **GeekMagic SmallTV** with NTP clock, OTA updates, and responsive web dashboard.
 
-- Versione attuale: `2026.03.15`
-- Formato versione: `YYYY.MM.DD`
+> Amateur project with AI-assisted code. Use at your own risk.
 
-### Changelog breve
+---
 
-- `2026.03.15`: pagina GTT esterna in `gtt_html.h`, fallback GTT unificato (web + TFT), hardening RAM/payload.
-- `2026.03.11`: refresh UI/typography.
+## ✨ Features
 
-## Requisiti
+- 🌡️ **Live Weather**: OpenWeatherMap API, temperature/humidity panel, auto-update every 10 minutes
+- 🕐 **NTP Clock**: Italy timezone (CET/CEST with DST), large Bebas Neue clock font
+- 📰 **RSS Feed**: ANSA top news (3 headlines), HTTPS fetch, retry logic
+- 🚌 **GTT Feed**: Turin bus stop data (`/gtt_data`) with unified fallback (same data on TFT + web)
+- 🌐 **Web Dashboard**: Bootstrap 5, mobile responsive, brightness slider, status panels
+- 🔄 **OTA Updates**: Wireless firmware update via ElegantOTA (`/update`)
+- 🎨 **Custom UI**: Scene rotation (clock/news/GTT), weather + RSS + GTT icons, custom GFX fonts
+- 🔒 **Hardening**: Input validation, HTTP timeouts, response size limits, secrets separated from repo
 
-- ESP8266 (es. D1 mini / ESP-12)
-- ST7789 240x240
-- WiFi 2.4 GHz
-- Arduino IDE o `arduino-cli`
+---
 
-## Setup rapido
+## 🛠️ Requirements
 
-1. Clona il progetto.
-2. Crea `wifi_secrets.h` da `wifi_secrets.example.h`.
-3. Crea `secrets.h` da `secrets.example.h` e inserisci `OWM_API_KEY`.
-4. Compila e carica `SmallTV_RSS.ino`.
+| Component | Details |
+|-----------|---------|
+| **Board** | ESP8266 (ESP-12E/12F, D1 mini, compatible) |
+| **Display** | ST7789 240x240 TFT (GeekMagic SmallTV) |
+| **Pin Config** | TFT: DC=GPIO0, RST=GPIO2, CS=GPIO15, BL=GPIO5 |
+| **Power** | 5V USB |
+| **WiFi** | 2.4GHz 802.11 b/g/n |
 
-## Endpoints
+### Dependencies
 
-### Pagine HTML
+```cpp
+Adafruit_GFX, Adafruit_ST7789
+ArduinoJson (6.x)
+ElegantOTA
+ESP8266WiFi, ESP8266WebServer, ESP8266HTTPClient (ESP8266 core)
+```
 
-- `GET /` dashboard (`index_html.h`)
-- `GET /gtt` pagina GTT (`gtt_html.h`)
-- `GET /update` OTA (ElegantOTA)
+**Fonts included**:
+- Bebas Neue (`fonts/Bebas_Neue/`) for clock
+- Oswald (`fonts/Oswald/`) for UI/news
 
-### API e controllo
+---
 
-- `GET /api` stato dispositivo + `fw_version`
-- `GET /news` news ANSA + debug
-- `GET /gtt_data` GTT + debug
-- `GET /brightness?value=N` luminosita' (`0..255`)
+## 🚀 Setup (5 steps)
 
-## Fallback GTT
+**1. Clone and enter project:**
 
-Se il feed GTT non e' disponibile, firmware e web usano lo stesso dataset di fallback:
-- linee `15`, `16`, `33`
-- usato sia su TFT che su `/gtt_data`
+```bash
+git clone https://github.com/stefanopennaa/SmallTV_RSS.git
+cd SmallTV_RSS
+```
 
-## Note tecniche
+**2. Configure WiFi:**
 
-- HTML in PROGMEM: `index_html.h`, `gtt_html.h`
-- limiti payload:
-  - meteo `4 KB`
-  - GTT `4 KB`
-  - RSS `32 KB`
+```bash
+cp wifi_secrets.example.h wifi_secrets.h
+# Edit wifi_secrets.h and set WIFI_SSID / WIFI_PASSWORD
+```
 
-## Build
+**3. Configure API key:**
+
+```bash
+cp secrets.example.h secrets.h
+# Edit secrets.h and set OWM_API_KEY
+```
+
+**4. (Optional) Set location/feed/timings:**
+Edit `config.h`:
+
+```cpp
+constexpr char OWM_LAT[] = "45.0703";
+constexpr char OWM_LON[] = "7.6869";
+constexpr char ANSA_RSS_URL[] = "https://www.ansa.it/sito/notizie/topnews/topnews_rss.xml";
+constexpr char GTT_STOP_URL[] = "http://gpa.madbob.org/query.php?stop=3445";
+```
+
+**5. Upload firmware:**
+- Open `SmallTV_RSS.ino` in Arduino IDE
+- Select ESP8266 board + serial port
+- Upload and open `http://DEVICE_IP`
+
+---
+
+## ⚙️ Configuration
+
+Main knobs in `config.h`:
+
+- **Weather interval**: `OWM_INTERVAL_MS` (default `600000`)
+- **News interval**: `NEWS_INTERVAL_MS` (default `600000`)
+- **GTT interval**: `GTT_INTERVAL_MS` (default `60000`)
+- **Scene durations**: `DISPLAY_CLOCK_MS`, `DISPLAY_NEWS_MS`, `DISPLAY_GTT_MS`
+- **Brightness default**: `setBrightness(50)` in `setup()`
+- **Theme colors**: `BG_COLOR`, `TEMP_COLOR`, `HUM_COLOR`, etc. (RGB565)
+- **Safety limits**:
+  - `RSS_MAX_RESPONSE_SIZE = 32768`
+  - `WEATHER_MAX_RESPONSE_SIZE = 4096`
+  - `GTT_MAX_RESPONSE_SIZE = 4096`
+
+---
+
+## 🌐 Web API
+
+| Endpoint | Purpose |
+|----------|---------|
+| `GET /` | Main dashboard page |
+| `GET /gtt` | Dedicated GTT page |
+| `GET /api` | Device/weather status JSON |
+| `GET /news` | RSS + debug JSON |
+| `GET /gtt_data` | GTT + debug JSON |
+| `GET /brightness?value=N` | Backlight control (`0-255`) |
+| `GET /update` | OTA update interface |
+
+Example `GET /api` response (shortened):
+
+```json
+{
+  "temp": 23.5,
+  "humidity": 65,
+  "description": "Partly cloudy",
+  "ip": "192.168.1.100",
+  "brightness": 128,
+  "wifi": true,
+  "ntp": true,
+  "boot_state": "ready",
+  "fw_version": "2026.03.15"
+}
+```
+
+---
+
+## 🏗️ Architecture
+
+**Boot sequence:**
+
+```text
+Init display -> WiFi connect -> NTP sync -> HTTP routes + OTA -> Initial fetch -> Render
+```
+
+**Main loop tasks:**
+
+- Handle HTTP requests and OTA loop
+- WiFi reconnect retry
+- NTP re-sync retry
+- Periodic weather/news/GTT refresh
+- Scene switching (`CLOCK -> NEWS -> GTT -> CLOCK`)
+
+**Boot states:**
+
+- `BOOT_WIFI`
+- `BOOT_NTP`
+- `BOOT_READY`
+- `BOOT_DEGRADED`
+
+---
+
+## 🐛 Troubleshooting
+
+| Issue | Quick checks |
+|-------|--------------|
+| No WiFi | Verify `wifi_secrets.h`, 2.4GHz SSID, signal strength |
+| Weather missing | Check `OWM_API_KEY` in `secrets.h`, API quota, lat/lon |
+| Clock shows `--:--` | NTP requires internet; wait retry cycle (60s) |
+| RSS empty/errors | Check internet/TLS availability and ANSA feed reachability |
+| GTT unavailable | Check `GTT_STOP_URL`; fallback dataset is used automatically |
+| Brightness not changing | Use `/brightness?value=128` (range `0-255`) |
+| OTA failed | Keep device powered, retry from `/update` |
+
+---
+
+## 🔐 Security Notes
+
+Implemented:
+
+- Input validation on brightness endpoint
+- Bounded network timeouts and retry caps
+- Payload size limits for weather/RSS/GTT responses
+- JSON parsing with structure checks
+- `secrets.h` / `wifi_secrets.h` excluded from git
+
+Limitations:
+
+- No authentication on web endpoints (LAN only)
+- Credentials stored in plaintext on device flash
+- OTA route not protected by additional auth
+
+Recommendation: use only on trusted private networks.
+
+---
+
+## 📝 Changelog
+
+### v2026.03.15 - GTT Integration & Hardening
+
+- Added dedicated GTT web page in `gtt_html.h`
+- Unified GTT fallback dataset for TFT + `/gtt_data`
+- RAM/payload hardening and robustness improvements
+
+### v2026.03.11 - UI & Typography Refresh
+
+- Added/updated Bebas Neue + Oswald GFX fonts
+- Improved clock and news readability on 240x240 TFT
+
+---
+
+## 🧪 Build (arduino-cli)
 
 ```bash
 arduino-cli compile --fqbn esp8266:esp8266:d1_mini SmallTV_RSS.ino
 ```
 
-## Licenza
+---
 
-MIT (`LICENSE`).
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create your branch (`git checkout -b feature/my-feature`)
+3. Commit (`git commit -m 'Add my feature'`)
+4. Push (`git push origin feature/my-feature`)
+5. Open a Pull Request
+
+---
+
+## 📄 License
+
+MIT License - see [LICENSE](LICENSE).
+
+---
+
+## 🙏 Credits
+
+- **Libraries**: Adafruit GFX, Adafruit ST7789, ArduinoJson, ElegantOTA, Bootstrap 5
+- **Data providers**: OpenWeatherMap, ANSA RSS, GTT, pool.ntp.org
+- **Hardware**: GeekMagic SmallTV
+
+---
+
+## 📧 Support
+
+- **Issues**: [GitHub Issues](https://github.com/stefanopennaa/SmallTV_RSS/issues)
+- **Email**: stefano@stefanopenna.it
+
+<p align="center">Built for ESP8266 tinkerers and tiny displays.</p>
