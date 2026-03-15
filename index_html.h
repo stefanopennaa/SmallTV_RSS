@@ -295,6 +295,14 @@ const char INDEX_HTML[] PROGMEM = R"(
                         </h5>
                         <div class="d-grid gap-2">
                             <a 
+                                href="/gtt" 
+                                class="btn btn-custom btn-lg rounded-4"
+                                role="button"
+                                aria-label="Vai alla pagina GTT trasporti"
+                            >
+                                🚌 GTT Trasporti
+                            </a>
+                            <a 
                                 href="/update" 
                                 class="btn btn-custom btn-lg rounded-4"
                                 role="button"

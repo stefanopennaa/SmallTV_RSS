@@ -38,10 +38,24 @@ constexpr int NEWS_MAX = 3;
 // News feed refresh interval (10 minutes)
 constexpr unsigned long NEWS_INTERVAL_MS = 600000UL;
 
+// =====================================================================
+// GTT feed (Turin Transport Group)
+// =====================================================================
+
+// GTT API url
+constexpr char GTT_STOP_URL[] = "http://gpa.madbob.org/query.php?stop=3445";  // 3445 GTT stop (Sabotino Cap.)
+
+// GTT feed refresh interval (1 minute)
+constexpr unsigned long GTT_INTERVAL_MS = 60000UL;  // update GTT feed every 1 minute
+
+// =====================================================================
 // Scene Display Durations
+// =====================================================================
+
 // Controls how long each screen type is visible before switching
 constexpr unsigned long DISPLAY_CLOCK_MS = 15000UL;  // Clock scene: 15 seconds
 constexpr unsigned long DISPLAY_NEWS_MS = 5000UL;    // News scene: 5 seconds per item
+constexpr unsigned long DISPLAY_GTT_MS = 15000UL;    // GTT scene: 15 seconds
 constexpr unsigned long CLOCK_REFRESH_MS = 5000UL;   // Clock refresh interval while in clock scene
 
 // =====================================================================
@@ -85,6 +99,10 @@ constexpr int16_t HUMI_ICON_Y = 195;
 // News Display Icons
 constexpr int16_t RSS_ICON_X = 10;  // RSS feed icon (top-left)
 constexpr int16_t RSS_ICON_Y = 10;
+
+// GTT Display Icon
+constexpr int16_t GTT_ICON_X = 10;  // GTT logo icon (top-left)
+constexpr int16_t GTT_ICON_Y = 10;
 
 // Status Message Positioning
 constexpr int16_t STATUS_TEXT_X = 10;          // Generic status text top-left X
@@ -148,6 +166,7 @@ constexpr uint8_t HTTP_RETRY_DELAY_MS = 30;  // Delay between retry attempts
 // Response Size Limits (security/stability)
 constexpr size_t RSS_MAX_RESPONSE_SIZE = 32768;     // Maximum RSS feed size (32 KB)
 constexpr size_t WEATHER_MAX_RESPONSE_SIZE = 4096;  // Maximum weather API response (4 KB)
+constexpr size_t GTT_MAX_RESPONSE_SIZE = 4096;      // Maximum GTT API payload size (4 KB)
 
 // =====================================================================
 // Graphics Rendering Configuration
