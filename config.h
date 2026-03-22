@@ -45,6 +45,9 @@ constexpr unsigned long NEWS_INTERVAL_MS = 600000UL;
 //   - Single stop only (hardcoded stop ID)
 //   - No nearby stops discovery
 //   - No user-selectable stops UI
+// Behavior:
+//   - No placeholder fallback stops: on API/parse failure, errors are exposed
+//     directly via TFT scene and /gtt_data debug.error
 // Future: multi-stop support, nearby stops, stop selector
 
 // GTT API url (⚠️ BETA: currently supports only 1 fixed stop)

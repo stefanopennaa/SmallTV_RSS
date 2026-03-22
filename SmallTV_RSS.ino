@@ -1,6 +1,7 @@
 // SmallTV firmware (ESP8266 + ST7789)
 // Versioning:
-// - 2026.03.15: GTT page in PROGMEM, unified fallback for TFT/Web, RAM hardening
+// - 2026.03.22: Removed GTT placeholder fallback, direct error propagation on TFT/Web
+// - 2026.03.15: GTT page in PROGMEM, RAM hardening
 // - 2026.03.11: UI and typography refresh
 
 #include <Adafruit_GFX.h>
@@ -68,7 +69,7 @@
 // Hardware instances
 Adafruit_ST7789 tft = Adafruit_ST7789(TFT_CS, TFT_DC, TFT_RST);  // ST7789 240x240 TFT display driver
 ESP8266WebServer server(80);                                     // HTTP server on port 80
-constexpr const char* FW_VERSION = "2026.03.15";
+constexpr const char* FW_VERSION = "2026.03.22";
 
 // UI Text Strings Structure
 // Centralizes all user-visible text to simplify localization and reduce string literals in code
@@ -156,12 +157,6 @@ struct GttStop {
   bool realtime;  // true=realtime data, false=scheduled
 };
 
-struct GttStopSeed {
-  const char* line;
-  const char* hour;
-  bool realtime;
-};
-
 constexpr int GTT_MAX = 6;            // Maximum number of GTT stops to display (3 lines × 3 times)
 GttStop gttStops[GTT_MAX];            // Array of bus stop data
 unsigned long lastGttFetchTime = 0;   // Timestamp of last GTT fetch attempt
@@ -171,14 +166,6 @@ int lastGttCount = 0;                 // Number of stops successfully parsed fro
 constexpr uint8_t GTT_LINES_ON_SCREEN = 3;
 constexpr uint8_t GTT_TIMES_PER_LINE = 3;
 constexpr size_t GTT_JSON_DOC_SIZE = 1024;
-constexpr GttStopSeed GTT_FALLBACK_STOPS[GTT_MAX] = {
-  { "15", "14:31", true },
-  { "15", "14:49", false },
-  { "16", "14:36", true },
-  { "16", "14:58", false },
-  { "33", "14:42", true },
-  { "33", "15:07", false }
-};
 
 // ===== UI DISPLAY STATE (Scene Machine) =====
 enum class DisplayScene : uint8_t {
@@ -197,6 +184,29 @@ bool offlineScreenShown = false;                        // True when timeout/off
 // ===== DISPLAY BRIGHTNESS =====
 // Value range: 0-255 (automatically inverted for PWM since this panel uses inverted backlight control)
 int currentBrightness = 50;
+constexpr uint8_t DEFAULT_BRIGHTNESS = 50;
+
+// ===== SCENE/UI RENDERING CONSTANTS =====
+constexpr int16_t SCENE_PROGRESS_X = 10;
+constexpr int16_t SCENE_PROGRESS_WIDTH = 220;
+constexpr int16_t SCENE_PROGRESS_HEIGHT = 5;
+constexpr int16_t SCENE_PROGRESS_RADIUS = 2;
+constexpr int16_t SCENE_PROGRESS_Y_CLOCK = 120;
+constexpr int16_t SCENE_PROGRESS_Y_NEWS = 190;
+constexpr int16_t SCENE_PROGRESS_Y_GTT = 206;
+
+constexpr int16_t WEATHER_TEMP_BAR_X = 45;
+constexpr int16_t WEATHER_TEMP_BAR_Y = 170;
+constexpr int16_t WEATHER_HUM_BAR_X = 45;
+constexpr int16_t WEATHER_HUM_BAR_Y = 215;
+constexpr int16_t WEATHER_BAR_WIDTH = 80;
+constexpr int16_t WEATHER_BAR_INNER_X = 48;
+constexpr int16_t WEATHER_BAR_INNER_W = 78;
+constexpr int16_t WEATHER_BAR_INNER_H = 7;
+constexpr int16_t WEATHER_TEMP_MIN_C = 0;
+constexpr int16_t WEATHER_TEMP_MAX_C = 40;
+constexpr uint16_t GTT_SCHEDULED_COLOR = 0x8410;  // Grey
+constexpr uint16_t GTT_SEPARATOR_COLOR = 0x39E7;  // Light grey
 
 // =====================================================================
 // Utility Helper Functions
@@ -263,6 +273,81 @@ bool validateBrightnessInput(const String& input, int& output) {
   // Convert and validate range
   output = input.toInt();
   return (output >= 0 && output <= 255);
+}
+
+// Returns the most appropriate offline status message for UI display.
+const char* getOfflineStatusMessage() {
+  if (lastWiFiResult == WiFiConnectResult::MissingCredentials) {
+    return UI.wifiMissing;
+  }
+  if (lastWiFiResult == WiFiConnectResult::Timeout) {
+    return UI.wifiTimeout;
+  }
+  return UI.wifiOffline;
+}
+
+// Converts scene enum to its display duration.
+unsigned long getSceneIntervalMs(DisplayScene scene) {
+  switch (scene) {
+    case DisplayScene::SCENE_NEWS: return DISPLAY_NEWS_MS;
+    case DisplayScene::SCENE_GTT: return DISPLAY_GTT_MS;
+    case DisplayScene::SCENE_CLOCK:
+    default: return DISPLAY_CLOCK_MS;
+  }
+}
+
+// Y coordinate used by the progress bar for each scene.
+int16_t getSceneProgressY(DisplayScene scene) {
+  switch (scene) {
+    case DisplayScene::SCENE_NEWS: return SCENE_PROGRESS_Y_NEWS;
+    case DisplayScene::SCENE_GTT: return SCENE_PROGRESS_Y_GTT;
+    case DisplayScene::SCENE_CLOCK:
+    default: return SCENE_PROGRESS_Y_CLOCK;
+  }
+}
+
+// Color used by the progress bar for each scene.
+uint16_t getSceneProgressColor(DisplayScene scene) {
+  switch (scene) {
+    case DisplayScene::SCENE_NEWS: return ST77XX_ORANGE;
+    case DisplayScene::SCENE_GTT: return ST77XX_CYAN;
+    case DisplayScene::SCENE_CLOCK:
+    default: return ST77XX_WHITE;
+  }
+}
+
+void drawSceneProgressBar(DisplayScene scene, unsigned long elapsed, unsigned long interval) {
+  const int16_t width = static_cast<int16_t>((elapsed * SCENE_PROGRESS_WIDTH) / interval);
+  tft.fillRoundRect(SCENE_PROGRESS_X,
+                    getSceneProgressY(scene),
+                    width,
+                    SCENE_PROGRESS_HEIGHT,
+                    SCENE_PROGRESS_RADIUS,
+                    getSceneProgressColor(scene));
+}
+
+// Refreshes minute tracking used by tickClockRefresh().
+void refreshClockTracking(unsigned long now) {
+  time_t t = time(nullptr);
+  struct tm* ti = localtime(&t);
+  lastMinute = (ntpSynced && ti) ? ti->tm_hour * 60 + ti->tm_min : -1;
+  lastClockRefresh = now;
+}
+
+// Renders the home scene (clock + weather), optionally clearing the full screen.
+void renderClockScene(bool clearScreen) {
+  if (clearScreen) {
+    tft.fillScreen(BG_COLOR);
+  }
+  drawClock();
+  drawWeather();
+}
+
+// Fetches all runtime datasets used by TFT and web API.
+void fetchAllData() {
+  fetchWeather();
+  fetchAnsaRSS(ANSA_RSS_URL);
+  fetchGTT(GTT_STOP_URL);
 }
 
 // =====================================================================
@@ -470,14 +555,13 @@ String jsonEscape(const String& s) {
   return out;
 }
 
-void applyGttFallbackData() {
+void clearGttStops() {
   for (int i = 0; i < GTT_MAX; i++) {
-    gttStops[i].line = GTT_FALLBACK_STOPS[i].line;
-    gttStops[i].hour = GTT_FALLBACK_STOPS[i].hour;
-    gttStops[i].realtime = GTT_FALLBACK_STOPS[i].realtime;
+    gttStops[i].line = "";
+    gttStops[i].hour = "";
+    gttStops[i].realtime = false;
   }
-  lastGttCount = GTT_MAX;
-  lastGttUpdateTime = millis();
+  lastGttCount = 0;
 }
 
 void appendGttStopJson(String& json, const String& line, const String& hour, bool realtime) {
@@ -491,17 +575,13 @@ void appendGttStopJson(String& json, const String& line, const String& hour, boo
 }
 
 String buildApiJsonPayload() {
-  String escapedDesc = jsonEscape(weatherDesc);
+  const String escapedDesc = jsonEscape(weatherDesc);
   char tempText[12];
   snprintf(tempText, sizeof(tempText), "%.1f", weatherTemp);
 
-  const unsigned long now = millis();
-  // Sentinel value -1 means "never fetched successfully".
-  const long weatherAge = (lastWeatherUpdateTime == 0) ? -1L : (long)(now - lastWeatherUpdateTime);
-  const long newsAge = (lastNewsUpdateTime == 0) ? -1L : (long)(now - lastNewsUpdateTime);
-
+  // Keep /api minimal: only fields used by the main dashboard.
   String json;
-  json.reserve(420);
+  json.reserve(180);
   json += "{\"temp\":";
   json += tempText;
   json += ",\"humidity\":";
@@ -512,20 +592,6 @@ String buildApiJsonPayload() {
   json += WiFi.localIP().toString();
   json += "\",\"brightness\":";
   json += String(currentBrightness);
-  json += ",\"wifi\":";
-  json += (WiFi.status() == WL_CONNECTED) ? "true" : "false";
-  json += ",\"wifi_result\":\"";
-  json += wifiResultToString(lastWiFiResult);
-  json += "\",\"ntp\":";
-  json += ntpSynced ? "true" : "false";
-  json += ",\"boot_state\":\"";
-  json += bootStateToString(bootState);
-  json += "\",\"fw_version\":\"";
-  json += FW_VERSION;
-  json += "\",\"last_weather_ms\":";
-  json += String(weatherAge);
-  json += ",\"last_news_ms\":";
-  json += String(newsAge);
   json += "}";
   return json;
 }
@@ -1017,7 +1083,7 @@ int parseGttStops(const String& jsonStr, GttStop* outStops, int maxStops, String
   DeserializationError err = deserializeJson(doc, jsonStr);
 
   if (err) {
-    parseError = "JSON parse error";
+    parseError = "JSON parse error: " + String(err.c_str());
     return 0;
   }
 
@@ -1027,6 +1093,10 @@ int parseGttStops(const String& jsonStr, GttStop* outStops, int maxStops, String
   }
 
   JsonArray arr = doc.as<JsonArray>();
+  if (arr.size() == 0) {
+    parseError = "Empty stops array ([])";
+    return 0;
+  }
   for (JsonObject item : arr) {
     if (found >= maxStops) break;
 
@@ -1073,7 +1143,7 @@ int parseGttStops(const String& jsonStr, GttStop* outStops, int maxStops, String
 void fetchGTT(const char* apiUrl) {
   // Pre-flight check
   if (!ensureWiFiConnected(lastGttError)) {
-    applyGttFallbackData();
+    clearGttStops();
     return;
   }
 
@@ -1097,7 +1167,7 @@ void fetchGTT(const char* apiUrl) {
       if (contentLength > 0 && contentLength > GTT_MAX_RESPONSE_SIZE) {
         lastGttError = "Response too large";
         http.end();
-        applyGttFallbackData();
+        clearGttStops();
         return;
       }
 
@@ -1107,12 +1177,12 @@ void fetchGTT(const char* apiUrl) {
       // Validate we actually got data
       if (json.length() == 0) {
         lastGttError = "Empty response";
-        applyGttFallbackData();
+        clearGttStops();
         return;
       }
       if (json.length() > GTT_MAX_RESPONSE_SIZE) {
         lastGttError = "Payload too large";
-        applyGttFallbackData();
+        clearGttStops();
         return;
       }
 
@@ -1138,11 +1208,11 @@ void fetchGTT(const char* apiUrl) {
     if (lastGttCount > 0) {
       lastGttUpdateTime = millis();
     } else {
-      applyGttFallbackData();
+      clearGttStops();
     }
   } else {
     lastGttError = "HTTP error: " + String(code);
-    applyGttFallbackData();
+    clearGttStops();
   }
 }
 
@@ -1160,7 +1230,7 @@ void fetchGTT(const char* apiUrl) {
 // Called periodically when new weather data is available
 void drawWeather() {
   // Clear weather panel area
-  tft.fillRect(0, 125, 240, 115, BG_COLOR);
+  tft.fillRect(0, WEATHER_Y, SCREEN_W, WEATHER_H, BG_COLOR);
 
   // === TEMPERATURE DISPLAY ===
   tft.setFont(&Oswald_SemiBold14pt7b);
@@ -1168,13 +1238,13 @@ void drawWeather() {
   tft.setTextColor(TEMP_COLOR);
 
   // Temperature progress bar background
-  tft.drawRoundRect(45, 170, 80, 9, 50, ST77XX_WHITE);
-  tft.fillCircle(48, 174, 2, TEMP_COLOR);  // Indicator dot
+  tft.drawRoundRect(WEATHER_TEMP_BAR_X, WEATHER_TEMP_BAR_Y, WEATHER_BAR_WIDTH, 9, 50, ST77XX_WHITE);
+  tft.fillCircle(WEATHER_BAR_INNER_X, WEATHER_TEMP_BAR_Y + 4, 2, TEMP_COLOR);  // Indicator dot
 
-  // Calculate and draw temperature fill (0-40°C scale)
-  float t = constrain(weatherTemp, 0.0f, 40.0f);
-  int tempWidth = (int)((78.0f * t) / 40.0f);
-  tft.fillRect(48, 171, tempWidth, 7, TEMP_COLOR);
+  // Calculate and draw temperature fill on a 0-40 C scale.
+  float t = constrain(weatherTemp, static_cast<float>(WEATHER_TEMP_MIN_C), static_cast<float>(WEATHER_TEMP_MAX_C));
+  int tempWidth = (int)((WEATHER_BAR_INNER_W * t) / WEATHER_TEMP_MAX_C);
+  tft.fillRect(WEATHER_BAR_INNER_X, WEATHER_TEMP_BAR_Y + 1, tempWidth, WEATHER_BAR_INNER_H, TEMP_COLOR);
 
   // Temperature icon
   drawRGB565_P(TEMP_ICON_X, TEMP_ICON_Y, TEMP_ICON_W, TEMP_ICON_H, TEMP_ICON_RGB565);
@@ -1188,13 +1258,13 @@ void drawWeather() {
   tft.setTextColor(HUM_COLOR);
 
   // Humidity progress bar background
-  tft.drawRoundRect(45, 215, 80, 9, 50, ST77XX_WHITE);
-  tft.fillCircle(48, 219, 2, HUM_COLOR);  // Indicator dot
+  tft.drawRoundRect(WEATHER_HUM_BAR_X, WEATHER_HUM_BAR_Y, WEATHER_BAR_WIDTH, 9, 50, ST77XX_WHITE);
+  tft.fillCircle(WEATHER_BAR_INNER_X, WEATHER_HUM_BAR_Y + 4, 2, HUM_COLOR);  // Indicator dot
 
   // Calculate and draw humidity fill (0-100% scale)
   int h = constrain(weatherHumidity, 0, 100);
-  int humiWidth = (int)((78.0f * h) / 100.0f);
-  tft.fillRect(48, 216, humiWidth, 7, HUM_COLOR);
+  int humiWidth = (int)((WEATHER_BAR_INNER_W * h) / 100.0f);
+  tft.fillRect(WEATHER_BAR_INNER_X, WEATHER_HUM_BAR_Y + 1, humiWidth, WEATHER_BAR_INNER_H, HUM_COLOR);
 
   // Humidity icon
   drawRGB565_P(HUMI_ICON_X, HUMI_ICON_Y, HUMI_ICON_W, HUMI_ICON_H, HUMI_ICON_RGB565);
@@ -1309,7 +1379,7 @@ void drawNews(int index) {
 //   - Single stop only (hardcoded in config.h)
 //   - Fixed layout: up to 3 different bus lines, each with next 3 departure times
 // Shows real-time stops in green, scheduled stops in grey
-// Gracefully handles empty data (shows error or "no data" message)
+// If no valid stops are available, renders the current GTT error directly.
 // Layout: Up to 3 unique bus lines, each with 3 departure times
 // Colors: Green (realtime), Grey (scheduled)
 void drawGTT() {
@@ -1319,9 +1389,15 @@ void drawGTT() {
   drawRGB565_P(GTT_ICON_X, GTT_ICON_Y, GTT_ICON_W, GTT_ICON_H, GTT_ICON_RGB565);
 
   if (lastGttCount == 0) {
+    tft.setTextColor(ST77XX_RED);
+    drawTextCenteredX(0, 98, SCREEN_W, "Errore GTT");
     tft.setTextColor(ST77XX_WHITE);
-    tft.setCursor(20, 120);
-    tft.println("No buses");
+    String detail = lastGttError.isEmpty() ? String("No stops parsed") : lastGttError;
+    detail.replace("\n", " ");
+    if (detail.length() > 34) {
+      detail = detail.substring(0, 34) + "...";
+    }
+    drawTextCenteredX(0, 128, SCREEN_W, detail);
     return;
   }
 
@@ -1390,7 +1466,7 @@ void drawGTT() {
           continue;
         }
         // Draw time with color based on realtime flag
-        uint16_t timeColor = gttStops[stopIdx].realtime ? ST77XX_GREEN : 0x8410;  // grey
+        uint16_t timeColor = gttStops[stopIdx].realtime ? ST77XX_GREEN : GTT_SCHEDULED_COLOR;
         tft.setTextColor(timeColor);
         tft.setCursor(xPos, yPos + 15);
         tft.print(gttStops[stopIdx].hour);
@@ -1399,7 +1475,7 @@ void drawGTT() {
 
     // Thin separator to create a clearer line break between rows.
     if (lineIdx + 1 < GTT_LINES_ON_SCREEN && lineSeedIdx[lineIdx + 1] >= 0) {
-      tft.drawFastHLine(10, yPos + 24, 220, 0x39E7);
+      tft.drawFastHLine(10, yPos + 24, 220, GTT_SEPARATOR_COLOR);
     }
     yPos += rowHeight;
   }
@@ -1532,12 +1608,8 @@ void tickNtpRetry(unsigned long now) {
 
   // syncNTP() clears the full screen; restore home scene to avoid blank weather area.
   if (currentScene == DisplayScene::SCENE_CLOCK) {
-    drawClock();
-    drawWeather();
-    time_t t = time(nullptr);
-    struct tm* ti = localtime(&t);
-    lastMinute = (ntpSynced && ti) ? ti->tm_hour * 60 + ti->tm_min : -1;
-    lastClockRefresh = now;
+    renderClockScene(false);
+    refreshClockTracking(now);
   }
 }
 
@@ -1593,7 +1665,7 @@ void tickNews(unsigned long now) {
 // ⚠️ BETA FUNCTION: Periodically fetches updated GTT bus stop data
 // Runs at intervals defined by GTT_INTERVAL_MS (typically 60 seconds)
 // Updates GTT data used by drawGTT() on TFT display
-// Handles network errors gracefully - display shows last cached data or fallback
+// Handles network errors by exposing explicit error state and empty GTT list
 // Note: HTTP requests are synchronous but bounded by short timeouts
 // Limitation: Fetches only 1 hardcoded stop (multi-stop coming in future release)
 void tickGTT(unsigned long now) {
@@ -1635,28 +1707,11 @@ void tickSceneScheduler(unsigned long now) {
     currentNewsIndex = 0;
   }
 
-  // Disable GTT scene if no GTT data available
-  if (lastGttCount <= 0 && currentScene == DisplayScene::SCENE_GTT) {
-    currentScene = DisplayScene::SCENE_CLOCK;
-  }
-
-  // Determine interval for current scene
-  unsigned long interval = DISPLAY_CLOCK_MS;
-  if (currentScene == DisplayScene::SCENE_NEWS) {
-    interval = DISPLAY_NEWS_MS;
-  } else if (currentScene == DisplayScene::SCENE_GTT) {
-    interval = DISPLAY_GTT_MS;
-  }
+  const unsigned long interval = getSceneIntervalMs(currentScene);
 
   // If not time to switch scenes yet, draw progress bar
   if (now - lastDisplay < interval) {
-    if (currentScene == DisplayScene::SCENE_NEWS) {
-      tft.fillRoundRect(10, 190, ((now - lastDisplay) * 220) / interval, 5, 2, ST77XX_ORANGE);
-    } else if (currentScene == DisplayScene::SCENE_GTT) {
-      tft.fillRoundRect(10, 206, ((now - lastDisplay) * 220) / interval, 5, 2, ST77XX_CYAN);
-    } else {
-      tft.fillRoundRect(10, 120, ((now - lastDisplay) * 220) / interval, 5, 2, ST77XX_WHITE);
-    }
+    drawSceneProgressBar(currentScene, now - lastDisplay, interval);
     return;
   }
 
@@ -1670,29 +1725,19 @@ void tickSceneScheduler(unsigned long now) {
         currentScene = DisplayScene::SCENE_NEWS;
         currentNewsIndex = 0;
         drawNews(currentNewsIndex);
-      } else if (lastGttCount > 0) {
-        // Skip news, go to GTT
+      } else {
+        // Skip news, go to GTT (also when empty to show explicit error screen)
         currentScene = DisplayScene::SCENE_GTT;
         drawGTT();
-      } else {
-        // Stay on clock, no news or GTT
-        lastDisplay = now;
       }
       break;
 
     case DisplayScene::SCENE_NEWS:
       currentNewsIndex++;
       if (currentNewsIndex >= lastNewsCount) {
-        // News cycle complete, switch to GTT or back to clock
-        if (lastGttCount > 0) {
-          currentScene = DisplayScene::SCENE_GTT;
-          drawGTT();
-        } else {
-          currentScene = DisplayScene::SCENE_CLOCK;
-          tft.fillScreen(BG_COLOR);
-          drawClock();
-          drawWeather();
-        }
+        // News cycle complete, always switch to GTT (even on error/empty data)
+        currentScene = DisplayScene::SCENE_GTT;
+        drawGTT();
       } else {
         // Show next news item
         drawNews(currentNewsIndex);
@@ -1702,9 +1747,7 @@ void tickSceneScheduler(unsigned long now) {
     case DisplayScene::SCENE_GTT:
       // GTT cycle complete, back to clock
       currentScene = DisplayScene::SCENE_CLOCK;
-      tft.fillScreen(BG_COLOR);
-      drawClock();
-      drawWeather();
+      renderClockScene(true);
       break;
 
     default:
@@ -1722,7 +1765,7 @@ void setup() {
   bootMs = millis();
   analogWriteFreq(5000);  // Increase PWM frequency to reduce backlight flicker during WiFi ops
   analogWriteRange(255);
-  setBrightness(50);
+  setBrightness(DEFAULT_BRIGHTNESS);
   tft.init(SCREEN_W, SCREEN_H, SPI_MODE3);
   tft.setRotation(2);
   tft.fillScreen(BG_COLOR);
@@ -1771,7 +1814,7 @@ void setup() {
       server.send(200, "application/json", json);
     });
 
-  // GET /gtt_data -> GTT + debug JSON (uses fallback dataset when needed)
+  // GET /gtt_data -> GTT + debug JSON (on failure: stops[] + debug.error)
   server.on(
     "/gtt_data",
     []() {
@@ -1800,9 +1843,7 @@ void setup() {
 
   // Initial fetch before first render.
   showStatusCentered("Fetching data...", ST77XX_WHITE);
-  fetchWeather();
-  fetchAnsaRSS(ANSA_RSS_URL);
-  fetchGTT(GTT_STOP_URL);
+  fetchAllData();
 
   // Mark initial fetch complete only when weather and news are both valid.
   bool weatherOk = lastWeatherError.isEmpty();
@@ -1820,23 +1861,14 @@ void setup() {
 
   // Render initial state.
   if (isWiFiConnected()) {
-    drawClock();
-    drawWeather();
+    renderClockScene(false);
   } else {
-    const char* offlineMsg = (lastWiFiResult == WiFiConnectResult::MissingCredentials)
-                               ? UI.wifiMissing
-                               : UI.wifiTimeout;
-    showStatusCentered(offlineMsg, ST77XX_YELLOW);
+    showStatusCentered(getOfflineStatusMessage(), ST77XX_YELLOW);
     offlineScreenShown = true;
   }
 
   // Prime clock refresh state.
-  {
-    time_t t = time(nullptr);
-    struct tm* ti = localtime(&t);
-    lastMinute = (ntpSynced && ti) ? ti->tm_hour * 60 + ti->tm_min : -1;
-    lastClockRefresh = millis();
-  }
+  refreshClockTracking(millis());
 }
 
 // loop: non-blocking scheduler + web/OTA handlers.
@@ -1850,12 +1882,7 @@ void loop() {
 
   if (!isWiFiConnected()) {
     if (!offlineScreenShown) {
-      const char* offlineMsg = (lastWiFiResult == WiFiConnectResult::MissingCredentials)
-                                 ? UI.wifiMissing
-                                 : ((lastWiFiResult == WiFiConnectResult::Timeout)
-                                      ? UI.wifiTimeout
-                                      : UI.wifiOffline);
-      showStatusCentered(offlineMsg, ST77XX_YELLOW);
+      showStatusCentered(getOfflineStatusMessage(), ST77XX_YELLOW);
       offlineScreenShown = true;
     }
 
@@ -1871,20 +1898,16 @@ void loop() {
   if (offlineScreenShown) {
     // Network restored: refresh data immediately.
     showStatusCentered("Fetching data...", ST77XX_WHITE);
-    fetchWeather();
-    fetchAnsaRSS(ANSA_RSS_URL);
+    fetchAllData();
     lastWeatherFetchTime = now;
     lastNewsFetchTime = now;
+    lastGttFetchTime = now;
 
     currentScene = DisplayScene::SCENE_CLOCK;
     currentNewsIndex = 0;
     lastDisplay = now;
-    drawClock();
-    drawWeather();
-    time_t t = time(nullptr);
-    struct tm* ti = localtime(&t);
-    lastMinute = (ntpSynced && ti) ? ti->tm_hour * 60 + ti->tm_min : -1;
-    lastClockRefresh = now;
+    renderClockScene(true);
+    refreshClockTracking(now);
     offlineScreenShown = false;
   }
 

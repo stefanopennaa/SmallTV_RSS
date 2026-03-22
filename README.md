@@ -1,7 +1,7 @@
 # 📺 SmallTV RSS - ESP8266 Weather Clock, RSS & GTT Feed
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2026.03.15-blue.svg" alt="Version">
+  <img src="https://img.shields.io/badge/version-2026.03.22-blue.svg" alt="Version">
   <img src="https://img.shields.io/badge/platform-ESP8266-green.svg" alt="Platform">
   <img src="https://img.shields.io/badge/license-MIT-yellow.svg" alt="License">
 </p>
@@ -17,7 +17,7 @@ Smart weather station + RSS news reader + GTT stop monitor for **GeekMagic Small
 - 🌡️ **Live Weather**: OpenWeatherMap API, temperature/humidity panel, auto-update every 10 minutes
 - 🕐 **NTP Clock**: Italy timezone (CET/CEST with DST), large Bebas Neue clock font
 - 📰 **RSS Feed**: ANSA top news (3 headlines), HTTPS fetch, retry logic
-- 🚌 **GTT Feed** ⚠️ **BETA**: Turin bus stop data (`/gtt_data`) with unified fallback (same data on TFT + web)
+- 🚌 **GTT Feed** ⚠️ **BETA**: Turin bus stop data (`/gtt_data`) with direct error propagation (no placeholder stops)
 - 🌐 **Web Dashboard**: Bootstrap 5, mobile responsive, brightness slider, status panels
 - 🔄 **OTA Updates**: Wireless firmware update via ElegantOTA (`/update`)
 - 🎨 **Custom UI**: Scene rotation (clock/news/GTT), weather + RSS + GTT icons, custom GFX fonts
@@ -127,11 +127,7 @@ Example `GET /api` response (shortened):
   "humidity": 65,
   "description": "Partly cloudy",
   "ip": "192.168.1.100",
-  "brightness": 128,
-  "wifi": true,
-  "ntp": true,
-  "boot_state": "ready",
-  "fw_version": "2026.03.15"
+  "brightness": 128
 }
 ```
 
@@ -178,7 +174,7 @@ The GTT (Gruppo Torinese Trasporti) feed is **currently in BETA** with the follo
 - Web UI stop selector and favorites
 - Real-time arrival countdown
 
-For now, use the fallback dataset if the API is unavailable.
+When the API returns invalid/empty data (including `[]`) or request errors, the real error is exposed directly on TFT and web (`/gtt_data` debug + GTT page).
 
 ---
 
@@ -188,7 +184,7 @@ For now, use the fallback dataset if the API is unavailable.
 | Weather missing | Check `OWM_API_KEY` in `secrets.h`, API quota, lat/lon |
 | Clock shows `--:--` | NTP requires internet; wait retry cycle (60s) |
 | RSS empty/errors | Check internet/TLS availability and ANSA feed reachability |
-| GTT unavailable | Check `GTT_STOP_URL`; fallback dataset is used automatically |
+| GTT unavailable | Check `GTT_STOP_URL`; the exact error is shown on TFT and on the GTT web page |
 | **GTT limitations** ⚠️ | **BETA feature**: Currently supports only 1 fixed bus stop. Nearby stops and custom stop selection coming soon. |
 | Brightness not changing | Use `/brightness?value=128` (range `0-255`) |
 | OTA failed | Keep device powered, retry from `/update` |
@@ -217,10 +213,15 @@ Recommendation: use only on trusted private networks.
 
 ## 📝 Changelog
 
+### v2026.03.22 - GTT Error Visibility
+
+- Removed placeholder/fallback GTT stops from firmware output
+- Empty array (`[]`) and fetch/parse errors are now shown directly on TFT and web GTT page
+- `/gtt_data` now keeps `stops: []` on failures and exposes the concrete error in `debug.error`
+
 ### v2026.03.15 - GTT Integration & Hardening
 
 - Added dedicated GTT web page in `gtt_html.h`
-- Unified GTT fallback dataset for TFT + `/gtt_data`
 - RAM/payload hardening and robustness improvements
 
 ### v2026.03.11 - UI & Typography Refresh

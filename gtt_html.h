@@ -240,9 +240,10 @@ const char GTT_HTML[] PROGMEM = R"(
             const content = document.getElementById('content');
             const updateInfo = document.getElementById('last-update');
             const errorInfo = document.getElementById('error-msg');
+            const errorText = data.debug?.error || '';
 
             if (!data.stops || data.stops.length === 0) {
-                content.innerHTML = '<p class="text-center mb-0">Nessun dato disponibile</p>';
+                content.innerHTML = '<p class="text-center mb-0 text-danger">Errore nel caricamento fermate GTT</p>';
             } else {
                 const grouped = {};
                 data.stops.forEach((stop) => {
@@ -268,16 +269,22 @@ const char GTT_HTML[] PROGMEM = R"(
 
             const ageSeconds = Math.max(0, Math.floor((data.debug?.age_ms ?? 0) / 1000));
             updateInfo.textContent = 'Aggiornato: ' + ageSeconds + 's fa';
-            errorInfo.textContent = data.debug?.error ? 'Errore: ' + data.debug.error : '';
+            errorInfo.textContent = errorText ? 'Errore: ' + errorText : '';
         }
 
         fetch('/gtt_data')
-            .then((r) => r.json())
+            .then(async (r) => {
+                if (!r.ok) {
+                    throw new Error('HTTP ' + r.status);
+                }
+                return r.json();
+            })
             .then((data) => renderStops(data))
             .catch((err) => {
                 console.error(err);
                 document.getElementById('content').innerHTML =
-                    '<p class="text-center mb-0 text-danger">Errore nel caricamento dati GTT</p>';
+                    '<p class="text-center mb-0 text-danger">Errore nel caricamento fermate GTT</p>';
+                document.getElementById('error-msg').textContent = 'Errore: ' + err.message;
             });
     </script>
 </body>
