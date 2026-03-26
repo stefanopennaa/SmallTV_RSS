@@ -1,5 +1,6 @@
 // SmallTV firmware (ESP8266 + ST7789)
 // Versioning:
+// - 2026.03.26: User-friendly error messages on display (detailed errors remain on web)
 // - 2026.03.22: Removed GTT placeholder fallback, direct error propagation on TFT/Web
 // - 2026.03.15: GTT page in PROGMEM, RAM hardening
 // - 2026.03.11: UI and typography refresh
@@ -69,7 +70,7 @@
 // Hardware instances
 Adafruit_ST7789 tft = Adafruit_ST7789(TFT_CS, TFT_DC, TFT_RST);  // ST7789 240x240 TFT display driver
 ESP8266WebServer server(80);                                     // HTTP server on port 80
-constexpr const char* FW_VERSION = "2026.03.22";
+constexpr const char* FW_VERSION = "2026.03.26";
 
 // UI Text Strings Structure
 // Centralizes all user-visible text to simplify localization and reduce string literals in code
@@ -287,10 +288,12 @@ const char* getOfflineStatusMessage() {
 }
 
 // Converts scene enum to its display duration.
+// Special case: GTT error screen shows only 5 seconds
 unsigned long getSceneIntervalMs(DisplayScene scene) {
   switch (scene) {
     case DisplayScene::SCENE_NEWS: return DISPLAY_NEWS_MS;
-    case DisplayScene::SCENE_GTT: return DISPLAY_GTT_MS;
+    case DisplayScene::SCENE_GTT:
+      return (lastGttCount == 0) ? 5000UL : DISPLAY_GTT_MS;
     case DisplayScene::SCENE_CLOCK:
     default: return DISPLAY_CLOCK_MS;
   }
@@ -1289,6 +1292,7 @@ void drawWeather() {
 //   - Item counter in top-right (e.g., "2/3")
 //   - Word-wrapped news headline text
 //   - Source attribution footer
+// If no news available, shows "News non disponibili" (detailed errors on web only)
 // Handles long words and prevents text overflow using intelligent line breaking
 // Parameters:
 //   index - Index of news item to display (0 to NEWS_MAX-1)
@@ -1305,7 +1309,7 @@ void drawNews(int index) {
   tft.setFont(&Oswald_Regular10pt7b);
 
   if (index < 0 || index >= lastNewsCount || newsTitles[index].length() == 0) {
-    drawTextTopLeft(NEWS_TEXT_X, NEWS_TEXT_Y, "No news available");
+    drawTextTopLeft(NEWS_TEXT_X, NEWS_TEXT_Y, "News non disponibili");
   } else {
     // Current item index (1-based)
     drawTextTopLeft(200, 17, String(index + 1) + "/" + String(lastNewsCount));
@@ -1379,7 +1383,7 @@ void drawNews(int index) {
 //   - Single stop only (hardcoded in config.h)
 //   - Fixed layout: up to 3 different bus lines, each with next 3 departure times
 // Shows real-time stops in green, scheduled stops in grey
-// If no valid stops are available, renders the current GTT error directly.
+// If no valid stops are available, shows "Dati non disponibili" (detailed errors on web only)
 // Layout: Up to 3 unique bus lines, each with 3 departure times
 // Colors: Green (realtime), Grey (scheduled)
 void drawGTT() {
@@ -1389,15 +1393,8 @@ void drawGTT() {
   drawRGB565_P(GTT_ICON_X, GTT_ICON_Y, GTT_ICON_W, GTT_ICON_H, GTT_ICON_RGB565);
 
   if (lastGttCount == 0) {
-    tft.setTextColor(ST77XX_RED);
-    drawTextCenteredX(0, 98, SCREEN_W, "Errore GTT");
     tft.setTextColor(ST77XX_WHITE);
-    String detail = lastGttError.isEmpty() ? String("No stops parsed") : lastGttError;
-    detail.replace("\n", " ");
-    if (detail.length() > 34) {
-      detail = detail.substring(0, 34) + "...";
-    }
-    drawTextCenteredX(0, 128, SCREEN_W, detail);
+    drawTextCenteredX(0, 113, SCREEN_W, "Dati non disponibili");
     return;
   }
 
@@ -1697,7 +1694,7 @@ void tickClockRefresh(unsigned long now) {
 // Scene durations:
 //   - CLOCK: DISPLAY_CLOCK_MS (15s)
 //   - NEWS: DISPLAY_NEWS_MS (5s) per item, cycles through all items
-//   - GTT: DISPLAY_GTT_MS (15s)
+//   - GTT: DISPLAY_GTT_MS (15s), or 5s if no data available
 // Parameters:
 //   now - Current timestamp from millis()
 void tickSceneScheduler(unsigned long now) {

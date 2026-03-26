@@ -224,9 +224,6 @@ const char GTT_HTML[] PROGMEM = R"(
         <div class="card p-3 mt-3 rounded-4">
             <div class="status-footer">
                 <div class="status-item"><span class="status-badge" id="last-update">Aggiornamento in corso...</span></div>
-                <div class="status-item">
-                    <small class="text-danger" id="error-msg"></small>
-                </div>
             </div>
         </div>
 
@@ -239,11 +236,12 @@ const char GTT_HTML[] PROGMEM = R"(
         function renderStops(data) {
             const content = document.getElementById('content');
             const updateInfo = document.getElementById('last-update');
-            const errorInfo = document.getElementById('error-msg');
-            const errorText = data.debug?.error || '';
 
             if (!data.stops || data.stops.length === 0) {
-                content.innerHTML = '<p class="text-center mb-0 text-danger">Errore nel caricamento fermate GTT</p>';
+                content.innerHTML = '<p class="text-center mb-0">Dati non disponibili</p>';
+                if (data.debug?.error) {
+                    console.error('GTT Error:', data.debug.error);
+                }
             } else {
                 const grouped = {};
                 data.stops.forEach((stop) => {
@@ -269,7 +267,6 @@ const char GTT_HTML[] PROGMEM = R"(
 
             const ageSeconds = Math.max(0, Math.floor((data.debug?.age_ms ?? 0) / 1000));
             updateInfo.textContent = 'Aggiornato: ' + ageSeconds + 's fa';
-            errorInfo.textContent = errorText ? 'Errore: ' + errorText : '';
         }
 
         fetch('/gtt_data')
@@ -281,10 +278,9 @@ const char GTT_HTML[] PROGMEM = R"(
             })
             .then((data) => renderStops(data))
             .catch((err) => {
-                console.error(err);
+                console.error('GTT Fetch Error:', err);
                 document.getElementById('content').innerHTML =
-                    '<p class="text-center mb-0 text-danger">Errore nel caricamento fermate GTT</p>';
-                document.getElementById('error-msg').textContent = 'Errore: ' + err.message;
+                    '<p class="text-center mb-0">Dati non disponibili</p>';
             });
     </script>
 </body>
