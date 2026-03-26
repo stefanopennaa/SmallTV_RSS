@@ -42,16 +42,19 @@ constexpr unsigned long NEWS_INTERVAL_MS = 600000UL;
 // GTT feed (Turin Transport Group) - ⚠️ BETA FEATURE
 // =====================================================================
 // Current limitations:
-//   - Single stop only (hardcoded stop ID)
+//   - Multiple stops supported (2 stops configured)
 //   - No nearby stops discovery
 //   - No user-selectable stops UI
 // Behavior:
+//   - Fetches data from multiple stops and merges results
 //   - No placeholder fallback stops: on API/parse failure, errors are exposed
 //     directly via TFT scene and /gtt_data debug.error
-// Future: multi-stop support, nearby stops, stop selector
+// Future: nearby stops, stop selector
 
-// GTT API url (⚠️ BETA: currently supports only 1 fixed stop)
-constexpr char GTT_STOP_URL[] = "https://gpa.madbob.org/query.php?stop=3445";  // 3445 GTT stop (Sabotino Cap.)
+// GTT API URLs (⚠️ BETA: currently supports 2 fixed stops)
+constexpr char GTT_STOP_URL_1[] = "https://gpa.madbob.org/query.php?stop=3445";  // 3445 GTT stop (Sabotino Cap.)
+constexpr char GTT_STOP_URL_2[] = "https://gpa.madbob.org/query.php?stop=3742";  // 3742 GTT stop
+constexpr uint8_t GTT_STOP_COUNT = 2;                                            // Number of stops to fetch
 
 // GTT feed refresh interval (1 minute)
 constexpr unsigned long GTT_INTERVAL_MS = 60000UL;  // update GTT feed every 1 minute

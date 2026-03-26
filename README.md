@@ -57,7 +57,8 @@ cp secrets.example.h secrets.h
 ```cpp
 constexpr char OWM_LAT[] = "45.0703";  // Your latitude
 constexpr char OWM_LON[] = "7.6869";   // Your longitude
-constexpr char GTT_STOP_URL[] = "https://gpa.madbob.org/query.php?stop=3445";  // Bus stop ID
+constexpr char GTT_STOP_URL_1[] = "https://gpa.madbob.org/query.php?stop=3445";  // First bus stop ID
+constexpr char GTT_STOP_URL_2[] = "https://gpa.madbob.org/query.php?stop=3742";  // Second bus stop ID
 ```
 
 **5. Upload:**
@@ -112,7 +113,7 @@ Edit `config.h` for:
 | No WiFi | Check `wifi_secrets.h`, verify 2.4GHz network |
 | No weather | Verify `OWM_API_KEY` in `secrets.h` |
 | Clock shows `--:--` | Wait for NTP sync (requires internet) |
-| GTT not working | Check `GTT_STOP_URL` and internet connection |
+| GTT not working | Check `GTT_STOP_URL_1`, `GTT_STOP_URL_2` and internet connection |
 | Brightness not changing | Use `/brightness?value=128` (0-255) |
 
 ---

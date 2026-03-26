@@ -350,7 +350,7 @@ void renderClockScene(bool clearScreen) {
 void fetchAllData() {
   fetchWeather();
   fetchAnsaRSS(ANSA_RSS_URL);
-  fetchGTT(GTT_STOP_URL);
+  fetchGTT(nullptr);  // URL parameter now ignored, using GTT_STOP_URL_1 and GTT_STOP_URL_2
 }
 
 // =====================================================================
@@ -1134,21 +1134,16 @@ int parseGttStops(const String& jsonStr, GttStop* outStops, int maxStops, String
   return found;
 }
 
-// fetchGTT()
-// ⚠️ BETA FUNCTION: Fetches GTT bus stop data from local API (query.php)
-// Limitations:
-//   - Supports only 1 hardcoded stop ID (currently 3445)
-//   - No multi-stop support, no nearby stops discovery, no stop selection UI
-// Updates global array: gttStops[]
-// Updates diagnostics: lastGttError, lastGttCount, lastGttUpdateTime
+// fetchGTTSingleStop()
+// Helper function: Fetches GTT data from a single stop URL
 // Parameters:
-//   apiUrl - URL of GTT API endpoint (e.g., https://gpa.madbob.org/query.php?stop=XXXX)
-void fetchGTT(const char* apiUrl) {
-  // Pre-flight check
-  if (!ensureWiFiConnected(lastGttError)) {
-    clearGttStops();
-    return;
-  }
+//   apiUrl     - URL of GTT API endpoint
+//   tempStops  - Temporary array to store parsed stops
+//   maxStops   - Maximum number of stops to parse
+//   errorMsg   - Output string for error reporting
+// Returns: Number of stops successfully fetched and parsed
+int fetchGTTSingleStop(const char* apiUrl, GttStop* tempStops, int maxStops, String& errorMsg) {
+  errorMsg = "";
 
   WiFiClientSecure client;
   client.setInsecure();  // Skip certificate validation
@@ -1168,10 +1163,9 @@ void fetchGTT(const char* apiUrl) {
     if (code == HTTP_CODE_OK) {
       int contentLength = http.getSize();
       if (contentLength > 0 && contentLength > GTT_MAX_RESPONSE_SIZE) {
-        lastGttError = "Response too large";
+        errorMsg = "Response too large";
         http.end();
-        clearGttStops();
-        return;
+        return 0;
       }
 
       json = http.getString();
@@ -1179,14 +1173,12 @@ void fetchGTT(const char* apiUrl) {
 
       // Validate we actually got data
       if (json.length() == 0) {
-        lastGttError = "Empty response";
-        clearGttStops();
-        return;
+        errorMsg = "Empty response";
+        return 0;
       }
       if (json.length() > GTT_MAX_RESPONSE_SIZE) {
-        lastGttError = "Payload too large";
-        clearGttStops();
-        return;
+        errorMsg = "Payload too large";
+        return 0;
       }
 
       break;  // Success - exit retry loop
@@ -1200,22 +1192,82 @@ void fetchGTT(const char* apiUrl) {
     }
   }
 
-  // Update diagnostics
+  if (code != HTTP_CODE_OK) {
+    errorMsg = "HTTP error: " + String(code);
+    return 0;
+  }
+
+  // Parse JSON and extract bus stops
+  return parseGttStops(json, tempStops, maxStops, errorMsg);
+}
+
+// fetchGTT()
+// ⚠️ BETA FUNCTION: Fetches GTT bus stop data from multiple stops and merges results
+// Limitations:
+//   - Supports 2 hardcoded stop IDs (3445 and 3742)
+//   - No nearby stops discovery, no stop selection UI
+// Updates global array: gttStops[]
+// Updates diagnostics: lastGttError, lastGttCount, lastGttUpdateTime
+// Parameters:
+//   apiUrl - URL of GTT API endpoint (ignored, kept for compatibility)
+void fetchGTT(const char* apiUrl) {
+  (void)apiUrl;  // Unused parameter, kept for backward compatibility
+
+  // Pre-flight check
+  if (!ensureWiFiConnected(lastGttError)) {
+    clearGttStops();
+    return;
+  }
+
+  // Temporary storage for stops from each API
+  GttStop tempStops1[GTT_MAX];
+  GttStop tempStops2[GTT_MAX];
+  String error1, error2;
+
+  // Fetch from both stops
+  int count1 = fetchGTTSingleStop(GTT_STOP_URL_1, tempStops1, GTT_MAX, error1);
+  int count2 = fetchGTTSingleStop(GTT_STOP_URL_2, tempStops2, GTT_MAX, error2);
+
+  // Clear global array before merging
+  clearGttStops();
   lastGttError = "";
   lastGttCount = 0;
 
-  if (code == HTTP_CODE_OK) {
-    // Parse JSON and extract bus stops
-    lastGttCount = parseGttStops(json, gttStops, GTT_MAX, lastGttError);
+  // Merge results into global gttStops array
+  int mergedCount = 0;
 
-    if (lastGttCount > 0) {
-      lastGttUpdateTime = millis();
+  // Add stops from first stop
+  for (int i = 0; i < count1 && mergedCount < GTT_MAX; i++) {
+    gttStops[mergedCount] = tempStops1[i];
+    mergedCount++;
+  }
+
+  // Add stops from second stop
+  for (int i = 0; i < count2 && mergedCount < GTT_MAX; i++) {
+    gttStops[mergedCount] = tempStops2[i];
+    mergedCount++;
+  }
+
+  lastGttCount = mergedCount;
+
+  // Update error message if both fetches failed
+  if (count1 == 0 && count2 == 0) {
+    if (error1.length() > 0 && error2.length() > 0) {
+      lastGttError = "Both stops failed: " + error1 + " / " + error2;
+    } else if (error1.length() > 0) {
+      lastGttError = error1;
     } else {
-      clearGttStops();
+      lastGttError = error2;
     }
-  } else {
-    lastGttError = "HTTP error: " + String(code);
-    clearGttStops();
+  } else if (count1 == 0 && error1.length() > 0) {
+    lastGttError = "Stop 1 error: " + error1;
+  } else if (count2 == 0 && error2.length() > 0) {
+    lastGttError = "Stop 2 error: " + error2;
+  }
+
+  // Update timestamp if we got at least some data
+  if (mergedCount > 0) {
+    lastGttUpdateTime = millis();
   }
 }
 
@@ -1380,7 +1432,7 @@ void drawNews(int index) {
 // drawGTT()
 // ⚠️ BETA FUNCTION: Renders GTT bus stop information on TFT display
 // Limitations:
-//   - Single stop only (hardcoded in config.h)
+//   - Multiple stops supported (2 stops configured: 3445 and 3742)
 //   - Fixed layout: up to 3 different bus lines, each with next 3 departure times
 // Shows real-time stops in green, scheduled stops in grey
 // If no valid stops are available, shows "Dati non disponibili" (detailed errors on web only)
@@ -1664,10 +1716,10 @@ void tickNews(unsigned long now) {
 // Updates GTT data used by drawGTT() on TFT display
 // Handles network errors by exposing explicit error state and empty GTT list
 // Note: HTTP requests are synchronous but bounded by short timeouts
-// Limitation: Fetches only 1 hardcoded stop (multi-stop coming in future release)
+// Limitation: Fetches 2 hardcoded stops and merges results
 void tickGTT(unsigned long now) {
   if (hasIntervalPassed(lastGttFetchTime, GTT_INTERVAL_MS, now)) {
-    fetchGTT(GTT_STOP_URL);
+    fetchGTT(nullptr);  // URL parameter now ignored, using GTT_STOP_URL_1 and GTT_STOP_URL_2
   }
 }
 
