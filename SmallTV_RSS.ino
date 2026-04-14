@@ -57,6 +57,14 @@
 #define WIFI_PASSWORD ""
 #endif
 
+#ifndef OTA_USERNAME
+#define OTA_USERNAME ""
+#endif
+
+#ifndef OTA_PASSWORD
+#define OTA_PASSWORD ""
+#endif
+
 // External API Keys
 // Include secrets.h if it exists (not tracked by git)
 // Without API keys, weather data will not be available
@@ -1911,7 +1919,11 @@ void setup() {
   }
 
   // OTA
-  ElegantOTA.begin(&server);
+  if (strlen(OTA_USERNAME) > 0 && strlen(OTA_PASSWORD) > 0) {
+    ElegantOTA.begin(&server, OTA_USERNAME, OTA_PASSWORD);
+  } else {
+    ElegantOTA.begin(&server);
+  }
   ElegantOTA.onStart(onOTAStart);
   ElegantOTA.onProgress(onOTAProgress);
   ElegantOTA.onEnd(onOTAEnd);

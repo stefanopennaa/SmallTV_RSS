@@ -44,7 +44,7 @@ cd SmallTV_RSS
 **2. Configure WiFi:**
 ```bash
 cp wifi_secrets.example.h wifi_secrets.h
-# Edit wifi_secrets.h: set WIFI_SSID and WIFI_PASSWORD
+# Edit wifi_secrets.h: set WIFI_SSID, WIFI_PASSWORD, OTA_USERNAME, OTA_PASSWORD
 ```
 
 **3. Configure API key:**
