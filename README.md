@@ -1,7 +1,7 @@
 # SmallTV RSS (ESP8266 + ST7789)
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2026.03.26-blue.svg" alt="Version">
+  <img src="https://img.shields.io/badge/version-2026.05.03-blue.svg" alt="Version">
   <img src="https://img.shields.io/badge/platform-ESP8266-green.svg" alt="Platform">
   <img src="https://img.shields.io/badge/license-MIT-yellow.svg" alt="License">
 </p>
