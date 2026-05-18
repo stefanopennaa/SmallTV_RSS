@@ -258,33 +258,57 @@ const char GTT_HTML[] PROGMEM = R"(
             const content = document.getElementById('content');
             const updateInfo = document.getElementById('last-update');
 
-            if (!data.stops || data.stops.length === 0) {
-                content.innerHTML = '<p class="text-center mb-0">Dati non disponibili</p>';
+            if (!Array.isArray(data.stops) || data.stops.length === 0) {
+                const empty = document.createElement('p');
+                empty.className = 'text-center mb-0';
+                empty.textContent = 'Dati non disponibili';
+                content.replaceChildren(empty);
                 if (data.debug?.error) {
                     console.error('GTT Error:', data.debug.error);
                 }
             } else {
-                const grouped = {};
+                const grouped = new Map();
                 data.stops.forEach((stop) => {
-                    if (!grouped[stop.line]) grouped[stop.line] = [];
-                    grouped[stop.line].push(stop);
+                    const line = String(stop?.line ?? '').trim();
+                    if (!line) return;
+                    if (!grouped.has(line)) grouped.set(line, []);
+                    grouped.get(line).push(stop);
                 });
 
-                let html = '';
-                // Keep server order so secondary-stop lines stay at the end.
-                Object.keys(grouped).forEach((line) => {
-                    html += '<div class="bus-line-container">';
-                    html += '<div class="card bus-card p-3 rounded-4">';
-                    html += '<div class="line-row">';
-                    html += '<div class="line-num">Linea ' + line + '</div>';
-                    html += '<div class="bus-times-group">';
-                    grouped[line].forEach((stop) => {
-                        const cls = stop.realtime ? 'rt' : 'sch';
-                        html += '<span class="time-badge ' + cls + '" title="' + (stop.realtime ? 'Tempo reale' : 'Orario previsto') + '">' + stop.hour + '</span>';
+                const fragment = document.createDocumentFragment();
+                // Map preserves insertion order, so line order follows API order.
+                grouped.forEach((lineStops, line) => {
+                    const container = document.createElement('div');
+                    container.className = 'bus-line-container';
+
+                    const card = document.createElement('div');
+                    card.className = 'card bus-card p-3 rounded-4';
+
+                    const row = document.createElement('div');
+                    row.className = 'line-row';
+
+                    const lineNum = document.createElement('div');
+                    lineNum.className = 'line-num';
+                    lineNum.textContent = 'Linea ' + line;
+
+                    const timesGroup = document.createElement('div');
+                    timesGroup.className = 'bus-times-group';
+
+                    lineStops.forEach((stop) => {
+                        const badge = document.createElement('span');
+                        badge.className = 'time-badge ' + (stop?.realtime ? 'rt' : 'sch');
+                        badge.title = stop?.realtime ? 'Tempo reale' : 'Orario previsto';
+                        badge.textContent = String(stop?.hour ?? '--');
+                        timesGroup.appendChild(badge);
                     });
-                    html += '</div></div></div></div>';
+
+                    row.appendChild(lineNum);
+                    row.appendChild(timesGroup);
+                    card.appendChild(row);
+                    container.appendChild(card);
+                    fragment.appendChild(container);
                 });
-                content.innerHTML = html;
+                content.replaceChildren(fragment);
             }
 
             const ageSeconds = Math.max(0, Math.floor((data.debug?.age_ms ?? 0) / 1000));
@@ -301,8 +325,10 @@ const char GTT_HTML[] PROGMEM = R"(
             .then((data) => renderStops(data))
             .catch((err) => {
                 console.error('GTT Fetch Error:', err);
-                document.getElementById('content').innerHTML =
-                    '<p class="text-center mb-0">Dati non disponibili</p>';
+                const empty = document.createElement('p');
+                empty.className = 'text-center mb-0';
+                empty.textContent = 'Dati non disponibili';
+                document.getElementById('content').replaceChildren(empty);
             });
     </script>
 </body>

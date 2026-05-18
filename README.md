@@ -54,7 +54,7 @@ Firmware for **GeekMagic SmallTV** with weather, RSS news, NTP clock, and GTT mo
 | --- | --- |
 | `/` | Main dashboard with online status badge |
 | `/gtt` | GTT page with bus times |
-| `/api` | Device status JSON (includes `online` flag and timestamp) |
+| `/api` | Device status JSON (includes `online`, `ts`, `free_heap`, `min_heap`) |
 | `/news` | News feed + debug JSON |
 | `/gtt_data` | GTT data + debug JSON |
 | `/brightness?value=N` | Display brightness (0-255) |

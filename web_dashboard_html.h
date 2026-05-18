@@ -3,8 +3,6 @@
 // File: web_dashboard_html.h
 // Purpose: Main dashboard HTML/CSS/JS stored in PROGMEM
 // Changelog (latest first):
-//   - 2026.05.14: tickWiFiRetry fixed — forced reconnect now triggers when bootState == BOOT_WIFI even if WiFi appears connected (internet-only outage recovery).
-//   - 2026.05.14: tickWiFiRetry now calls refreshAfterInternetRecovery directly after internet recovery, without depending on offlineScreenShown flag.
 //   - 2026.05.14: Updated to use 'online' flag from /api, improved fetch timeout handling
 //   - 2026.05.03: Header/comment structure normalized (format-only update)
 //

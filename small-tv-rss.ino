@@ -85,7 +85,7 @@
 // Hardware instances
 Adafruit_ST7789 tft = Adafruit_ST7789(TFT_CS, TFT_DC, TFT_RST);  // ST7789 240x240 TFT display driver
 ESP8266WebServer server(80);                                     // HTTP server on port 80
-constexpr const char* FW_VERSION = "2026.05.11";
+constexpr const char* FW_VERSION = "2026.05.14";
 
 // UI Text Strings Structure
 // Centralizes all user-visible text to simplify localization and reduce string literals in code
@@ -143,6 +143,8 @@ WiFiConnectResult lastWiFiResult = WiFiConnectResult::Timeout;  // Result of las
 bool ntpSynced = false;                                         // True when NTP time sync is successful
 bool otaInProgress = false;                                     // True during OTA firmware update
 unsigned long bootMs = 0;                                       // Timestamp when device booted
+uint32_t minFreeHeap = 0xFFFFFFFFUL;                            // Runtime low-watermark for heap usage
+constexpr uint32_t TLS_MIN_HEAP_BYTES = 22000UL;                // Safety threshold before opening TLS sockets
 
 // ===== NETWORK RETRY TIMERS =====
 unsigned long lastWiFiRetry = 0;                // Last WiFi reconnection attempt
@@ -256,6 +258,24 @@ bool isWiFiConnected() {
 bool ensureWiFiConnected(String& errorString) {
   if (!isWiFiConnected()) {
     errorString = UI.wifiOffline;
+    return false;
+  }
+  return true;
+}
+
+// Tracks minimum free heap observed during runtime.
+inline void trackHeapLowWatermark() {
+  const uint32_t freeHeap = ESP.getFreeHeap();
+  if (freeHeap < minFreeHeap) {
+    minFreeHeap = freeHeap;
+  }
+}
+
+// Prevents TLS handshakes when heap is critically low.
+bool ensureHeapForTls(String& errorString) {
+  trackHeapLowWatermark();
+  if (ESP.getFreeHeap() < TLS_MIN_HEAP_BYTES) {
+    errorString = "Low heap for TLS";
     return false;
   }
   return true;
@@ -641,7 +661,7 @@ String buildApiJsonPayload() {
 
   // Keep /api minimal: only fields used by the main dashboard.
   String json;
-  json.reserve(300);
+  json.reserve(360);
   json += "{\"online\":";
   json += isWiFiConnected() ? "true" : "false";
   json += ",\"temp\":";
@@ -654,6 +674,10 @@ String buildApiJsonPayload() {
   json += ipStr;
   json += "\",\"brightness\":";
   json += String(currentBrightness);
+  json += ",\"free_heap\":";
+  json += String(ESP.getFreeHeap());
+  json += ",\"min_heap\":";
+  json += String(minFreeHeap);
   json += ",\"ts\":";
   json += String(millis() / 1000);  // Timestamp in seconds for data freshness check
   json += "}";
@@ -771,6 +795,11 @@ void setBrightness(int value) {
 bool checkInternetHealth(int& httpCode) {
   httpCode = 0;
   if (!isWiFiConnected()) {
+    return false;
+  }
+  trackHeapLowWatermark();
+  if (ESP.getFreeHeap() < TLS_MIN_HEAP_BYTES) {
+    httpCode = -2;
     return false;
   }
 
@@ -943,7 +972,7 @@ bool ICACHE_FLASH_ATTR syncNTP() {
 // fetchWeather()
 // Fetches current weather data from OpenWeatherMap API
 // Updates global variables: weatherTemp, weatherHumidity, weatherDesc, lastWeatherUpdateTime
-// Silently fails if WiFi is disconnected or API key is missing
+// Sets an explicit error string if WiFi is disconnected or API key is missing
 // Uses HTTP_TIMEOUT_MS and automatic retry logic (HTTP_MAX_RETRIES) for resilience
 // Note: Coordinates are configured in app_config.h (OWM_LAT, OWM_LON)
 void fetchWeather() {
@@ -954,6 +983,7 @@ void fetchWeather() {
     lastWeatherError = "API key missing";
     return;
   }
+  if (!ensureHeapForTls(lastWeatherError)) return;
 
   // Build OpenWeatherMap API URL
   String url = "https://api.openweathermap.org/data/2.5/weather?lat=";
@@ -989,6 +1019,16 @@ void fetchWeather() {
 
       // Read and parse JSON response
       String payload = http.getString();
+      if (payload.length() == 0) {
+        lastWeatherError = "Empty response";
+        http.end();
+        return;
+      }
+      if (payload.length() > WEATHER_MAX_RESPONSE_SIZE) {
+        lastWeatherError = "Payload too large";
+        http.end();
+        return;
+      }
       StaticJsonDocument<1024> doc;
       DeserializationError err = deserializeJson(doc, payload);
 
@@ -1096,6 +1136,10 @@ void fetchAnsaRSS(const char* feedUrl) {
     lastNewsHttpCode = -1;
     return;
   }
+  if (!ensureHeapForTls(lastNewsError)) {
+    lastNewsHttpCode = -2;
+    return;
+  }
 
   WiFiClientSecure client;
   client.setInsecure();  // Skip certificate validation for simplicity
@@ -1128,6 +1172,10 @@ void fetchAnsaRSS(const char* feedUrl) {
       // Validate we actually got data
       if (xml.length() == 0) {
         lastNewsError = "Empty response";
+        return;
+      }
+      if (xml.length() > RSS_MAX_RESPONSE_SIZE) {
+        lastNewsError = "Payload too large";
         return;
       }
 
@@ -1244,6 +1292,9 @@ int parseGttStops(const String& jsonStr, GttStop* outStops, int maxStops, String
 // Returns: Number of stops successfully fetched and parsed
 int fetchGTTSingleStop(const char* apiUrl, GttStop* tempStops, int maxStops, String& errorMsg) {
   errorMsg = "";
+  if (!ensureHeapForTls(errorMsg)) {
+    return 0;
+  }
 
   WiFiClientSecure client;
   client.setInsecure();  // Skip certificate validation
@@ -1737,7 +1788,7 @@ void onOTAEnd(bool success) {
 // Allows device to recover automatically from temporary network outages
 void tickWiFiRetry(unsigned long now) {
 
-  // Forza reconnect anche se WiFi è "connesso" ma bootState segnala recovery necessaria
+  // Force reconnect even if WiFi appears connected when bootState requests recovery.
   const bool needsRecovery = (bootState == BootState::BOOT_WIFI);
   if (isWiFiConnected() && !needsRecovery) return;
   if (now - lastWiFiRetry < WIFI_RETRY_INTERVAL_MS) return;
@@ -1965,6 +2016,7 @@ void tickSceneScheduler(unsigned long now) {
 // setup: init hardware, network, endpoints, OTA and first render.
 void setup() {
   bootMs = millis();
+  minFreeHeap = ESP.getFreeHeap();
   analogWriteFreq(5000);  // Increase PWM frequency to reduce backlight flicker during WiFi ops
   analogWriteRange(255);
   setBrightness(DEFAULT_BRIGHTNESS);
@@ -2081,6 +2133,7 @@ void setup() {
 // loop: non-blocking scheduler + web/OTA handlers.
 void loop() {
   unsigned long now = millis();
+  trackHeapLowWatermark();
 
   // Check WiFi status first BEFORE handling any requests
   if (!isWiFiConnected()) {
