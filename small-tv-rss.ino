@@ -1146,6 +1146,7 @@ void fetchAnsaRSS(const char* feedUrl) {
 
   int code = -1;
   String xml;
+  String fetchError;
 
   // Retry loop for transient network failures
   for (uint8_t attempt = 0; attempt < HTTP_MAX_RETRIES; attempt++) {
@@ -1153,7 +1154,10 @@ void fetchAnsaRSS(const char* feedUrl) {
     http.begin(client, feedUrl);
     http.setTimeout(HTTP_TIMEOUT_MS);
     http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+    http.useHTTP10(true);  // More reliable body reads on constrained TLS clients
     http.addHeader("User-Agent", "Mozilla/5.0");
+    http.addHeader("Connection", "close");
+    http.addHeader("Accept-Encoding", "identity");
 
     code = http.GET();
 
@@ -1161,22 +1165,88 @@ void fetchAnsaRSS(const char* feedUrl) {
       // Security check: validate response size before reading
       int contentLength = http.getSize();
       if (contentLength > 0 && contentLength > RSS_MAX_RESPONSE_SIZE) {
-        lastNewsError = "Feed too large";
+        fetchError = "Feed too large";
         http.end();
-        return;
+        break;
       }
 
-      xml = http.getString();
+      // Read payload incrementally: avoids occasional empty body from getString()
+      // on constrained TLS sessions and lets us stop once NEWS_MAX items are complete.
+      xml = "";
+      size_t reserveBytes = (contentLength > 0)
+                              ? static_cast<size_t>(contentLength)
+                              : static_cast<size_t>(2048);
+      if (reserveBytes > RSS_MAX_RESPONSE_SIZE) {
+        reserveBytes = RSS_MAX_RESPONSE_SIZE;
+      }
+      if (reserveBytes > 0) {
+        xml.reserve(reserveBytes);
+      }
+
+      WiFiClient* stream = http.getStreamPtr();
+      constexpr size_t RSS_CHUNK_SIZE = 256;
+      char chunk[RSS_CHUNK_SIZE + 1];
+      unsigned long readDeadline = millis() + HTTP_TIMEOUT_MS;
+      int completeItems = 0;
+      int scanPos = 0;
+
+      while ((http.connected() || stream->available()) && static_cast<long>(millis() - readDeadline) < 0) {
+        int available = stream->available();
+        if (available <= 0) {
+          delay(1);
+          continue;
+        }
+
+        int toRead = available;
+        if (toRead > static_cast<int>(RSS_CHUNK_SIZE)) {
+          toRead = RSS_CHUNK_SIZE;
+        }
+
+        int bytesRead = stream->readBytes(chunk, toRead);
+        if (bytesRead <= 0) {
+          delay(1);
+          continue;
+        }
+
+        if (xml.length() + static_cast<size_t>(bytesRead) > RSS_MAX_RESPONSE_SIZE) {
+          fetchError = "Payload too large";
+          break;
+        }
+
+        chunk[bytesRead] = '\0';
+        if (!xml.concat(chunk, static_cast<unsigned int>(bytesRead))) {
+          fetchError = "Low heap for RSS buffer";
+          break;
+        }
+
+        // Continue scanning from last checkpoint and count completed <item>.
+        while (true) {
+          int itemEnd = xml.indexOf("</item>", scanPos);
+          if (itemEnd < 0) break;
+          completeItems++;
+          scanPos = itemEnd + 7;
+          if (completeItems >= NEWS_MAX) break;
+        }
+        if (completeItems >= NEWS_MAX) {
+          break;
+        }
+
+        readDeadline = millis() + HTTP_TIMEOUT_MS;
+      }
       http.end();
 
       // Validate we actually got data
       if (xml.length() == 0) {
-        lastNewsError = "Empty response";
-        return;
+        fetchError = "Empty response";
+        if (attempt < HTTP_MAX_RETRIES - 1) {
+          delay(HTTP_RETRY_DELAY_MS);
+          continue;
+        }
+        break;
       }
       if (xml.length() > RSS_MAX_RESPONSE_SIZE) {
-        lastNewsError = "Payload too large";
-        return;
+        fetchError = "Payload too large";
+        break;
       }
 
       break;  // Success - exit retry loop
@@ -1193,15 +1263,36 @@ void fetchAnsaRSS(const char* feedUrl) {
   // Update diagnostics
   lastNewsHttpCode = code;
   lastNewsError = "";
-  lastNewsCount = 0;
 
   if (code == HTTP_CODE_OK) {
-    // Parse RSS XML and extract news items
-    lastNewsCount = parseRssItems(xml, newsTitles, newsLinks,
-                                  NEWS_MAX, lastNewsError);
+    if (xml.length() == 0) {
+      // Keep explicit fetch-level error when no payload was received.
+      lastNewsError = fetchError.length() > 0 ? fetchError : "Empty response";
+    } else if (fetchError.length() > 0) {
+      lastNewsError = fetchError;
+    } else {
+      // Parse into temporary buffers; publish only on success.
+      String parsedTitles[NEWS_MAX];
+      String parsedLinks[NEWS_MAX];
+      String parseError;
+      int parsedCount = parseRssItems(xml, parsedTitles, parsedLinks,
+                                      NEWS_MAX, parseError);
 
-    if (lastNewsCount > 0) {
-      lastNewsUpdateTime = millis();
+      if (parsedCount > 0) {
+        for (int i = 0; i < parsedCount; i++) {
+          newsTitles[i] = parsedTitles[i];
+          newsLinks[i] = parsedLinks[i];
+        }
+        for (int i = parsedCount; i < NEWS_MAX; i++) {
+          newsTitles[i] = "";
+          newsLinks[i] = "";
+        }
+        lastNewsCount = parsedCount;
+        lastNewsError = "";
+        lastNewsUpdateTime = millis();
+      } else {
+        lastNewsError = parseError;
+      }
     }
   } else {
     lastNewsError = "HTTP error: " + String(code);
